@@ -1,0 +1,46 @@
+{
+  "name": "bob_startup",
+  "user_id": "eval_bob",
+  "session_a_turns": [
+    "Hey, I'm Bob, I run a two-person startup called Fernwood Labs.",
+    "We're building a scheduling tool for freelance therapists.",
+    "I'm the technical co-founder, my partner Dana handles sales and design.",
+    "Tech-wise we picked Postgres over MongoDB after a long debate about relational integrity.",
+    "Random tangent: what's the tallest mountain in South America?",
+    "Cool. Anyway I personally prefer async communication over meetings, I find meetings draining.",
+    "We decided last week to delay our launch by a month to fix onboarding flow issues.",
+    "Dana thinks we should raise a small pre-seed round; I'm still on the fence about it.",
+    "Actually, update: we changed our minds and now we're using MongoDB instead of Postgres, turned out our data is mostly document-shaped.",
+    "That's the update, appreciate you keeping track.",
+    "Also our company name got finalized as 'Fernwood Labs' officially, not just a working title anymore.",
+    "One more: I go by Bob, never Robert, just a pet peeve of mine."
+  ],
+  "session_b_questions": [
+    {
+      "question": "What's the name of my company and what do we build?",
+      "expect_any": ["Fernwood", "scheduling tool", "scheduling"]
+    },
+    {
+      "question": "Who is my co-founder and what does she do?",
+      "expect_any": ["Dana"]
+    },
+    {
+      "question": "What database are we using?",
+      "expect_any": ["MongoDB"],
+      "expect_none": ["Postgres"]
+    },
+    {
+      "question": "What did we decide about the launch timeline?",
+      "expect_any": ["delay", "month"]
+    },
+    {
+      "question": "How do I prefer to communicate?",
+      "expect_any": ["async"]
+    }
+  ],
+  "contradiction": {
+    "question": "Which database do we use, Postgres or MongoDB?",
+    "expect_any": ["MongoDB"],
+    "expect_none": ["Postgres", "still using Postgres"]
+  }
+}

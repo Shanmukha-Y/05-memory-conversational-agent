@@ -1,0 +1,46 @@
+{
+  "name": "alice_rag_project",
+  "user_id": "eval_alice",
+  "session_a_turns": [
+    "Hi! My name is Alice and I'm a backend engineer.",
+    "I'm building a RAG system for my company's internal docs search.",
+    "For the vector store I'm currently using ChromaDB, and embeddings come from nomic-embed-text.",
+    "One thing about me: I really dislike verbose code, I prefer terse, readable functions.",
+    "We just decided as a team to ship the first version behind a feature flag rather than a full rollout.",
+    "Also, unrelated, what's a fun fact about octopuses?",
+    "Haha nice, okay back to work. My manager's name is Priya and she's been really supportive of this project.",
+    "We're targeting a demo for the RAG system in three weeks.",
+    "By the way I also mentioned I switched from ChromaDB to Qdrant for the vector store, it handles our scale better.",
+    "Cool, that's all the updates for now, thanks for listening.",
+    "One more thing: I prefer being addressed casually, not formally.",
+    "And just to be clear, we are NOT using ChromaDB anymore -- fully on Qdrant now."
+  ],
+  "session_b_questions": [
+    {
+      "question": "What's my name and what's my job?",
+      "expect_any": ["Alice", "backend engineer", "backend"]
+    },
+    {
+      "question": "What project am I working on?",
+      "expect_any": ["RAG", "retrieval", "docs search", "internal docs"]
+    },
+    {
+      "question": "What vector database am I using right now?",
+      "expect_any": ["Qdrant"],
+      "expect_none": ["ChromaDB", "Chroma "]
+    },
+    {
+      "question": "What did my team decide about the rollout?",
+      "expect_any": ["feature flag"]
+    },
+    {
+      "question": "What's my manager's name?",
+      "expect_any": ["Priya"]
+    }
+  ],
+  "contradiction": {
+    "question": "Which vector store do I use, ChromaDB or Qdrant?",
+    "expect_any": ["Qdrant"],
+    "expect_none": ["ChromaDB", "still using Chroma", "using Chroma"]
+  }
+}
