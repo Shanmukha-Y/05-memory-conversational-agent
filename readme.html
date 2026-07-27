@@ -202,6 +202,23 @@
 <h2 id="why-command">The <code>/why</code> transparency command</h2>
 <p>Every recall is inspectable. <code>/why</code> shows exactly which memories were pulled for the last reply and their full score breakdown — similarity, age in days, decay factor, importance, and the final score — so nothing about "what does the agent think it knows" is a black box.</p>
 
+<h2 id="drift">A second finding: the assistant's own small talk can contaminate memory</h2>
+<p>During live verification, a stored fact read: <em>"User plans to use controlled rollout to gather ground truth for evaluation metrics like Recall@K or MRR."</em> Nobody ever said "Recall@K" or "MRR" anywhere in that conversation. Tracing it through the audit log and raw transcript to the exact source turned up something more specific — and more interesting — than generic hallucination.</p>
+<p>The extractor's turn filter originally read <code>t.role in ("user", "assistant")</code> — it treated the assistant's own conversational replies as legitimate source material for "facts about the user." And a chat model, replying naturally to "I'm building a RAG system for our internal knowledge base," doesn't just acknowledge it — it elaborates: <em>"That sounds like a high-impact project, especially for getting operational docs and SOPs into the pipeline."</em> Nobody said "operational docs and SOPs" either; the assistant added it as friendly color commentary, the same way a person might say "oh nice, so like for onboarding docs?" without that being a claim about anything. That's completely normal chat behavior. The bug was extracting facts from it anyway.</p>
+<div class="callout bad">
+<p><strong>Traced, not guessed.</strong> Querying the live run's audit log and transcript table side by side showed the chain precisely:</p>
+<ol>
+<li>Real turn: <em>"I'm building a RAG system for our internal knowledge base."</em></li>
+<li>Assistant's reply invents: <em>"...getting operational docs and SOPs into the pipeline."</em></li>
+<li>Next compression's summary, given both turns as equally-valid input, elaborates further: <em>"...defining chunking strategies... selecting an embedding model such as <code>text-embedding-3-large</code>..."</em> — a specific, real embedding model name that never came up, invented from nothing.</li>
+<li>A later summary escalates again: <em>"...evaluation metrics like Recall@K and MRR."</em></li>
+<li>Extraction, reading the (real, un-summarized) turns from that window, independently reached the same territory and stored it as fact.</li>
+</ol>
+<p>Each stage treats the previous stage's output as established truth and elaborates on top of it — a small, compounding game of telephone, entirely internal to the model.</p>
+</div>
+<p><strong>Fix:</strong> <code>extractor.py</code> now sources facts exclusively from the user's own turns (<code>t.role == "user"</code>) — never the assistant's replies, and never summary turns (which were already excluded, but that filter alone didn't touch this bug, since the contamination came from live assistant chat, not summarized text). The extraction and summarization system prompts were also both tightened to explicitly forbid adding plausible-sounding details, tools, or terminology that weren't actually said, as defense in depth. A dedicated test (<code>test_extract_facts_never_sends_assistant_content_to_the_model</code>) plants a fabricated specific in an assistant turn and asserts it never even reaches the extraction prompt, not just that it's absent from the output.</p>
+<p><strong>Residual limitation:</strong> the short-term buffer's <code>[compressed]</code> summaries (used only for conversational continuity within a session, never for long-term storage) can still drift over many re-compression cycles, since the summarizer sees both roles by design — that's necessary for it to track what the assistant already told the user. The blast radius is now bounded to that single session's live context window rather than permanent memory, and re-tuning the buffer budget so compression doesn't fire on nearly every turn (see below) independently reduces how many re-summarization cycles a session accumulates in the first place.</p>
+
 <h2 id="install">Install &amp; run</h2>
 <pre><code>cd 05-memory-conversational-agent
 uv sync

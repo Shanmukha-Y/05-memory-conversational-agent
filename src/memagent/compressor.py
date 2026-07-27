@@ -16,7 +16,10 @@ from memagent.config import CONFIG
 SUMMARY_SYSTEM_PROMPT = """You compress older turns of a conversation into \
 a short third-person recap that preserves anything a later reply might \
 need: names, decisions, ongoing projects, preferences, and open threads. \
-Omit small talk and pleasantries. Write 2-5 sentences, no preamble."""
+Omit small talk and pleasantries. Only include what was actually said --\
+do not invent tools, metrics, terminology, or plausible-sounding details \
+that never came up, even to make the summary read more smoothly. Write \
+2-5 sentences, no preamble."""
 
 
 @dataclass

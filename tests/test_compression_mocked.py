@@ -97,3 +97,66 @@ def test_extract_facts_can_return_empty_list_for_chitchat(monkeypatch):
     turns = [Turn(role="user", content="lol nice"), Turn(role="assistant", content="haha yeah")]
     facts = extractor.extract_facts(turns)
     assert facts == []
+
+
+def test_extract_facts_never_sends_assistant_content_to_the_model(monkeypatch):
+    """Regression test for a live-observed bug: the assistant's own
+    conversational replies contain plausible-sounding embellishment the
+    user never said (e.g. "operational docs and SOPs", "Recall@K and
+    MRR"), and treating assistant turns as extraction source let that
+    embellishment get stored as a "fact about the user." Assistant turns
+    must never even reach the extraction prompt."""
+    captured_prompts = []
+
+    def fake_generate_json(prompt, schema, system=None, temperature=0.0, max_retries=1):
+        captured_prompts.append(prompt)
+        return ExtractedFacts(facts=[])
+
+    monkeypatch.setattr(extractor.llm, "generate_json", fake_generate_json)
+
+    turns = [
+        Turn(role="user", content="I'm building a RAG system."),
+        Turn(role="assistant", content="Nice, that probably involves Recall@K and MRR metrics, right?"),
+    ]
+    extractor.extract_facts(turns)
+
+    assert len(captured_prompts) == 1
+    assert "Recall@K" not in captured_prompts[0]
+    assert "MRR" not in captured_prompts[0]
+    assert "I'm building a RAG system" in captured_prompts[0]
+
+
+def test_extract_facts_never_sends_summary_content_to_the_model(monkeypatch):
+    """A planted fake specific that only exists in a prior [compressed]
+    summary turn must never reach the extraction prompt either."""
+    captured_prompts = []
+
+    def fake_generate_json(prompt, schema, system=None, temperature=0.0, max_retries=1):
+        captured_prompts.append(prompt)
+        return ExtractedFacts(facts=[])
+
+    monkeypatch.setattr(extractor.llm, "generate_json", fake_generate_json)
+
+    turns = [
+        Turn(role="summary", content="[compressed] User evaluates using text-embedding-3-large.", compressed=True),
+        Turn(role="user", content="We picked ChromaDB as the vector store."),
+    ]
+    extractor.extract_facts(turns)
+
+    assert len(captured_prompts) == 1
+    assert "text-embedding-3-large" not in captured_prompts[0]
+    assert "ChromaDB" in captured_prompts[0]
+
+
+def test_extract_facts_source_is_user_turns_only(monkeypatch):
+    monkeypatch.setattr(extractor.llm, "generate_json", lambda *a, **k: ExtractedFacts(facts=[]))
+    turns = [
+        Turn(role="assistant", content="only assistant content here"),
+        Turn(role="summary", content="[compressed] only summary content here", compressed=True),
+    ]
+    # No user turns at all -> should short-circuit without an LLM call.
+    called = []
+    monkeypatch.setattr(extractor.llm, "generate_json", lambda *a, **k: called.append(1))
+    facts = extractor.extract_facts(turns)
+    assert facts == []
+    assert called == []
