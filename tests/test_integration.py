@@ -25,7 +25,18 @@ from memagent.session import Session
 
 # Small budget so this ~12-turn scripted conversation crosses the
 # compression trigger more than once without needing a 50-turn script.
-BUFFER_BUDGET = 350
+#
+# 350 (an earlier value here) was too tight: real exchanges in this script
+# run ~90-160 tokens each, so a 280-token trigger threshold fired on almost
+# every turn -- 9 compressions across 12 turns, observed live. That's
+# pathological: each compression re-summarizes the *previous* summary
+# turn along with new content, and repeatedly summarizing an
+# already-terse summary measurably drives the model to embellish
+# plausible-sounding specifics that were never said (observed live: a
+# stored fact inventing "Recall@K" and "MRR" metrics out of nothing).
+# 600 (threshold 480) still reliably forces >=2 real compressions across
+# this script without re-summarizing on nearly every turn.
+BUFFER_BUDGET = 600
 
 SESSION_A_TURNS = [
     "Hi, I'm Alice, a backend engineer at a logistics startup.",

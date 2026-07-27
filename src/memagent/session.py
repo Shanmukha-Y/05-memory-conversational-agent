@@ -83,6 +83,32 @@ class Session:
                 self.user_id, fact.text, upsert_result.action, upsert_result.previous_text
             )
 
+    def flush(self) -> None:
+        """Extract facts from any turns still sitting verbatim in the
+        buffer -- i.e. turns added since the last compression, which never
+        went through extraction because the buffer never crossed the
+        trigger threshold again before the session ended.
+
+        Without this, whatever was said in the last few turns of a session
+        (which is exactly where a just-stated correction or decision is
+        most likely to be) would be silently lost the moment the process
+        exits: session B starts with an empty buffer by design, so nothing
+        that never made it into the store is recoverable. `extract_facts`
+        only draws from the user's own turns (see extractor.py), so this
+        is safe to call even if the buffer is currently all-summary,
+        assistant-only, or empty.
+        """
+        pending_user_turns = [t for t in self.buffer.turns if t.role == "user"]
+        if not pending_user_turns:
+            return
+        facts = extractor.extract_facts(self.buffer.turns)
+        for fact in facts:
+            upsert_result = self.store.upsert_fact(self.user_id, fact)
+            self.audit.log_extraction(
+                self.user_id, fact.text, upsert_result.action, upsert_result.previous_text
+            )
+
     def close(self) -> None:
+        self.flush()
         self.store.close()
         self.audit.close()

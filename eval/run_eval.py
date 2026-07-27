@@ -40,7 +40,11 @@ DIALOGS_DIR = Path(__file__).resolve().parent / "scripted_dialogs"
 
 # Small budget so the ~12-turn scripted conversations actually cross the
 # compression trigger within the eval, without needing 50-turn scripts.
-EVAL_BUFFER_BUDGET_TOKENS = 350
+# See tests/test_integration.py for why this isn't smaller: too tight a
+# budget causes repeated re-summarization of already-compressed summaries,
+# which measurably drives the model to hallucinate plausible-sounding
+# specifics that were never said.
+EVAL_BUFFER_BUDGET_TOKENS = 600
 
 
 @dataclass
