@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>memagent — a conversational agent that remembers across restarts</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-alt: #f6f7f9;
+    --text: #1a1d23;
+    --text-dim: #5b6270;
+    --border: #e2e5ea;
+    --accent: #2f6fed;
+    --green: #1a7f4e;
+    --green-bg: #e8f6ee;
+    --amber: #97650a;
+    --amber-bg: #fff6e0;
+    --red: #b3261e;
+    --red-bg: #fdecea;
+    --code-bg: #0f1117;
+    --code-text: #e6e9ef;
+    --mono: "SF Mono", "Menlo", "Consolas", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --bg-alt: #1b1e24; --text: #e8eaed; --text-dim: #9aa1ad;
+      --border: #2b2f37; --accent: #6d9bff; --green: #4ade8a; --green-bg: #113023;
+      --amber: #e8b84b; --amber-bg: #33290b; --red: #ff7b72; --red-bg: #3a1616;
+      --code-bg: #0a0b0d; --code-text: #e6e9ef;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14161a; --bg-alt: #1b1e24; --text: #e8eaed; --text-dim: #9aa1ad;
+    --border: #2b2f37; --accent: #6d9bff; --green: #4ade8a; --green-bg: #113023;
+    --amber: #e8b84b; --amber-bg: #33290b; --red: #ff7b72; --red-bg: #3a1616;
+    --code-bg: #0a0b0d; --code-text: #e6e9ef;
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --bg-alt: #f6f7f9; --text: #1a1d23; --text-dim: #5b6270;
+    --border: #e2e5ea; --accent: #2f6fed; --green: #1a7f4e; --green-bg: #e8f6ee;
+    --amber: #97650a; --amber-bg: #fff6e0; --red: #b3261e; --red-bg: #fdecea;
+    --code-bg: #0f1117; --code-text: #e6e9ef;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.6; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+
+  h1 { font-size: 2rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+  h2 { font-size: 1.35rem; margin: 3rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.05rem; margin: 1.75rem 0 0.75rem; }
+  p { margin: 0.9rem 0; color: var(--text); }
+  .lede { font-size: 1.1rem; color: var(--text-dim); margin-top: 0.5rem; }
+  a { color: var(--accent); }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: 0.35rem 0; }
+  code {
+    font-family: var(--mono); font-size: 0.88em; background: var(--bg-alt);
+    padding: 0.1em 0.4em; border-radius: 4px; border: 1px solid var(--border);
+  }
+  pre {
+    font-family: var(--mono); font-size: 0.85em; background: var(--code-bg);
+    color: var(--code-text); padding: 1rem 1.15rem; border-radius: 8px;
+    overflow-x: auto; line-height: 1.55;
+  }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+
+  .badge-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0 0; }
+  .badge {
+    font-size: 0.78rem; font-family: var(--mono); padding: 0.25rem 0.6rem;
+    border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim);
+  }
+
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-dim); font-weight: 600; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.02em; }
+  td code { white-space: nowrap; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .callout {
+    border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    background: var(--bg-alt); border-radius: 6px; padding: 1rem 1.2rem; margin: 1.25rem 0;
+  }
+  .callout.good { border-left-color: var(--green); }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout.bad { border-left-color: var(--red); }
+  .callout p:first-child { margin-top: 0; }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .flow {
+    display: flex; flex-direction: column; gap: 0.5rem; margin: 1.5rem 0;
+    font-family: var(--mono); font-size: 0.85rem;
+  }
+  .flow-row { display: flex; align-items: stretch; gap: 0.5rem; flex-wrap: wrap; }
+  .flow-box {
+    flex: 1; min-width: 160px; border: 1px solid var(--border); background: var(--bg-alt);
+    border-radius: 6px; padding: 0.6rem 0.8rem;
+  }
+  .flow-box .t { font-weight: 700; color: var(--text); }
+  .flow-box .d { color: var(--text-dim); font-size: 0.8rem; margin-top: 0.2rem; }
+  .flow-box.hot { border-color: var(--accent); }
+  .flow-box.store { border-color: var(--green); }
+  .flow-arrow { display: flex; align-items: center; justify-content: center; color: var(--text-dim); min-width: 1.5rem; }
+
+  .term {
+    font-family: var(--mono); font-size: 0.84rem; background: var(--code-bg); color: var(--code-text);
+    border-radius: 8px; padding: 1rem 1.15rem; margin: 1rem 0; overflow-x: auto; line-height: 1.7;
+  }
+  .term .u { color: #7fd1ff; }
+  .term .a { color: #b9f28c; }
+  .term .sys { color: #9aa1ad; font-style: italic; }
+  .term .cmd { color: #ffcb6b; }
+  .term .kill { color: #ff7b72; font-weight: 700; }
+
+  .pill { display: inline-block; font-family: var(--mono); font-size: 0.78rem; font-weight: 600;
+    padding: 0.15rem 0.55rem; border-radius: 5px; }
+  .pill.ok { color: var(--green); background: var(--green-bg); }
+  .pill.warn { color: var(--amber); background: var(--amber-bg); }
+
+  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>memagent — a conversational agent that remembers across restarts</h1>
+<p class="lede">Two-tier memory: a token-budgeted rolling buffer for the live conversation, and a persistent vector store of distilled facts that survives the process dying. Kill it mid-conversation, restart it, and it still knows your name, your project, and what you decided last session.</p>
+<div class="badge-row">
+  <span class="badge">Python 3.11+</span>
+  <span class="badge">uv</span>
+  <span class="badge">ChromaDB (local, persistent)</span>
+  <span class="badge">SQLite</span>
+  <span class="badge">qwen3.5:9b via Ollama</span>
+  <span class="badge">nomic-embed-text via Ollama</span>
+  <span class="badge">pydantic · rich</span>
+</div>
+
+<h2 id="why">Why naive chat history fails</h2>
+<p>The obvious way to give a chatbot memory is: keep appending every turn to the prompt. That fails in two directions at once, and they're the same failure wearing different hats.</p>
+<ul>
+  <li><strong>Context growth.</strong> A prompt that grows by every turn eventually blows the context window, and long before that it blows the latency and cost budget — you're re-sending the entire conversation, including the parts that stopped mattering an hour ago, on every single call.</li>
+  <li><strong>Forgetting.</strong> The standard fix — a sliding window that only keeps the last N turns — solves the growth problem by deleting the memory problem. Once a turn scrolls out of the window it's gone. Ask the agent your name after turn 40 and it has no idea, even though you told it at turn 2.</li>
+</ul>
+<p>Both failure modes come from treating "what's in the prompt" as the only kind of memory the agent has. It's not: there's a difference between what you need <em>verbatim, right now</em> (the live back-and-forth) and what you need <em>as a fact, indefinitely</em> (your name, your project, a decision you made). Conflating them means paying full verbatim-storage cost for durable facts, and losing durable facts the moment verbatim storage gets pruned.</p>
+
+<h2 id="architecture">Two-tier design</h2>
+<p>memagent splits those into two systems with different lifetimes, different storage, and different retrieval mechanics.</p>
+
+<div class="flow">
+  <div class="flow-row">
+    <div class="flow-box hot"><div class="t">Short-term buffer</div><div class="d">rolling turn list, ~2,000 token budget, lives only in the process</div></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box"><div class="t">Context assembler</div><div class="d">buffer + recalled facts &rarr; one prompt</div></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box hot"><div class="t">qwen3.5:9b</div><div class="d">generates the reply</div></div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-box"><div class="t">Compressor</div><div class="d">buffer &ge; 80% budget &rarr; oldest half summarized to one <code>[compressed]</code> turn</div></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box"><div class="t">Fact extractor</div><div class="d">qwen3.5:9b JSON mode &rarr; Fact{text, type, importance}</div></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box store"><div class="t">Dedup / contradiction check</div><div class="d">cosine &ge; 0.65 to existing &rarr; LLM: replace / merge / skip</div></div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-box store"><div class="t">ChromaDB + SQLite</div><div class="d">facts, keyed by user_id, survive process restarts</div></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box"><div class="t">Recall scorer</div><div class="d">similarity &times; recency decay &times; importance, top-4</div></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box"><div class="t">"Known about this user:"</div><div class="d">injected into the next prompt</div></div>
+  </div>
+</div>
+
+<h3>The rolling buffer never grows past budget</h3>
+<p>Every turn goes into the buffer verbatim. Token cost is estimated cheaply (chars/4 — a real tokenizer would be more precise but this is only used to decide "is it time to compress," where a rough estimate is fine). Once the buffer reaches 80% of its budget, the oldest half is summarized into a single turn marked <code>[compressed]</code>, and the last <code>keep_last_n_turns</code> turns stay verbatim. Compression triggers at 80% rather than 100% deliberately: it leaves headroom so the <em>next</em> prompt — which still includes the pre-compression buffer for one more turn — never blows past budget either.</p>
+<p>Nothing said is ever actually deleted. The raw turns being compressed are already sitting in the SQLite transcript log (written before compression ever runs), and every compression + extraction event is logged to an audit table. Compression only shrinks what rides along in the prompt, never the historical record.</p>
+
+<h3>Fact extraction: only what's durable</h3>
+<p>Whatever gets compressed out of the buffer is handed to the same model in JSON mode, prompted to pull out only facts that matter beyond this conversation — identity, preference, project, or decision — and to return an empty list for pure chit-chat. Output is validated against a Pydantic schema with one retry on malformed JSON.</p>
+
+<h3>Scored recall: why pure similarity fails</h3>
+<p>Naively, "what does the agent know about this user relevant to what they just said" is a nearest-neighbor search over embedded facts. That's not enough on its own: pure similarity ranking lets a fact that happens to be semantically close to the current question outrank a fresher, more relevant one, even if it's months stale or was later superseded. The score blends three signals multiplicatively, so any one of them collapsing to near-zero kills the memory's relevance:</p>
+<pre><code>score = similarity &times; e^(-age_days / half_life_days) &times; (importance / 5)</code></pre>
+<p>Half-life defaults to 30 days. A fact's "age" is its <code>updated_at</code> timestamp, not <code>created_at</code> — so a fact that gets reaffirmed or corrected gets a fresh recency boost, which is what makes contradiction handling (below) actually improve future recall instead of just fixing the stored text. The top-4 highest-scoring facts get formatted into a <code>"Known about this user:"</code> block and injected into the system prompt for that turn — and only that turn; nothing is permanently baked into the buffer.</p>
+<p>The scoring formula is a pure function with no I/O (<code>recall.score_memory</code>), so its ordering guarantees — a fresh important fact beats an old merely-similar one — are covered by exact-ordering unit tests, not just eyeballed.</p>
+
+<h2 id="contradiction">Contradiction handling</h2>
+<p>Every newly extracted fact is embedded and compared against the user's existing facts before being stored. If the closest existing fact is above a similarity threshold, the pair is handed to the LLM to decide <strong>replace</strong>, <strong>merge</strong>, or <strong>skip</strong> — rather than blindly inserting a new row and letting near-duplicate or contradictory facts accumulate as garbage.</p>
+<div class="callout warn">
+<p><strong>The threshold isn't 0.9, and that's a deliberate, measured choice.</strong> The plausible-looking default — "cosine similarity above 0.9 means duplicate" — turns out to be wrong for this use case. Measured against <code>nomic-embed-text</code>:</p>
+<table>
+<tr><th>Pair</th><th class="num">Cosine similarity</th></tr>
+<tr><td>"User is building a RAG system" / "The user works on a RAG system" (paraphrase)</td><td class="num">0.906</td></tr>
+<tr><td>"User lives in NYC" / "User moved to Boston" (contradiction)</td><td class="num">0.714</td></tr>
+<tr><td>"User uses Chroma as their vector database" / "User switched from Chroma to Qdrant" (contradiction)</td><td class="num">0.791</td></tr>
+<tr><td>"User lives in NYC" / "User prefers dark mode UIs" (unrelated)</td><td class="num">0.391</td></tr>
+</table>
+<p>Genuine contradictions about the same "slot" — the exact cases this gate exists to catch — score <em>lower</em> than intuition suggests, well below a 0.9 bar. A 0.9 threshold would have let every contradiction case sail through as a fresh insert, silently duplicating instead of updating. <code>dedup_similarity_threshold</code> is set to <strong>0.65</strong>: comfortable margin above the unrelated ceiling (~0.44) and below the lowest observed contradiction score (~0.71).</p>
+</div>
+<p>When the LLM says <strong>replace</strong>, the existing SQLite row is overwritten in place — same UUID, same row, new text, new embedding, bumped <code>updated_at</code> — and the old text is written to the audit log for transparency. Nothing is duplicated. <code>/memories</code> after "I switched from Chroma to Qdrant" shows one updated fact, not two conflicting ones.</p>
+
+<h2 id="why-command">The <code>/why</code> transparency command</h2>
+<p>Every recall is inspectable. <code>/why</code> shows exactly which memories were pulled for the last reply and their full score breakdown — similarity, age in days, decay factor, importance, and the final score — so nothing about "what does the agent think it knows" is a black box.</p>
+
+<h2 id="install">Install &amp; run</h2>
+<pre><code>cd 05-memory-conversational-agent
+uv sync
+
+# make sure Ollama is running locally with both models pulled:
+#   ollama pull qwen3.5:9b
+#   ollama pull nomic-embed-text
+
+uv run mem chat --user alice
+</code></pre>
+<p>Fast tests (unit + mocked-LLM, zero network, run in well under a second):</p>
+<pre><code>uv run pytest</code></pre>
+<p>Live integration test (hits the real Ollama server, can take a while under load — marked <code>@pytest.mark.integration</code> and excluded by default):</p>
+<pre><code>uv run pytest -m integration -v</code></pre>
+<p>Recall eval (defaults to one scripted dialog for speed; <code>--limit</code> runs more):</p>
+<pre><code>uv run python eval/run_eval.py --limit 2 --verbose</code></pre>
+
+<h2 id="demo">Demo walkthrough</h2>
+<p>The full demo script lives below in transcript form. All model output is real (qwen3.5:9b / nomic-embed-text via local Ollama), condensed for length.</p>
+
+<h3>1. Start a session, talk past the compression threshold</h3>
+<div class="term">
+<span class="cmd">$ uv run mem chat --user alice</span><br>
+<span class="sys">mem chat -- user=alice. Type /help for commands, /exit to quit.</span><br>
+<span class="u">you&gt;</span> Hi, I'm Alice, a backend engineer building a RAG system for my company.<br>
+<span class="a">agent&gt;</span> Nice to meet you, Alice! A RAG system is a great project...<br>
+<span class="u">you&gt;</span> We picked ChromaDB as the vector store, and I prefer terse code over verbose code.<br>
+<span class="a">agent&gt;</span> Good choice on ChromaDB for getting started quickly...<br>
+<span class="u">you&gt;</span> <em>(...conversation continues past the ~1,600-token trigger point...)</em><br>
+<span class="a">agent&gt;</span> <em>(buffer's oldest half silently collapses into one <code>[compressed]</code> turn; nothing in the visible conversation changes)</em>
+</div>
+
+<h3>2. <code>/memories</code> — the distilled fact list</h3>
+<div class="term">
+<span class="u">you&gt;</span> <span class="cmd">/memories</span><br>
+<span class="sys">Memories for alice</span><br>
+&nbsp;&nbsp;identity   5   User's name is Alice<br>
+&nbsp;&nbsp;identity   5   User works as a backend engineer<br>
+&nbsp;&nbsp;project    5   User is building a RAG system for their company<br>
+&nbsp;&nbsp;decision   4   User has selected ChromaDB as the vector store<br>
+&nbsp;&nbsp;preference 3   User prefers terse code over verbose code
+</div>
+
+<h3>3. Kill the process. Restart. Ask what we were doing. — the money shot</h3>
+<div class="term">
+<span class="kill">^C</span> <span class="sys">(process killed)</span><br>
+<span class="cmd">$ uv run mem chat --user alice</span><br>
+<span class="sys">mem chat -- user=alice. Type /help for commands, /exit to quit.</span><br>
+<span class="u">you&gt;</span> What was I working on, and what did we decide?<br>
+<span class="a">agent&gt;</span> You're building a RAG system for your company, and the team decided to go with ChromaDB as the vector store.
+</div>
+<p>The buffer that process started with was empty — <code>session.py</code> deliberately restores nothing into short-term memory on a new <code>Session</code>. That answer came entirely from <code>recall()</code> querying the persistent ChromaDB + SQLite store keyed by <code>user_id="alice"</code>. This is exercised as an actual assertion, not just a demo: <code>tests/test_integration.py</code> runs this exact plant-then-restart-then-ask sequence live and asserts &ge;4/5 planted facts are correctly recalled after a simulated restart (fresh <code>Session</code>, fresh <code>Buffer</code>, same on-disk store).</p>
+
+<h3>4. <code>/why</code> — inspect the last recall</h3>
+<div class="term">
+<span class="u">you&gt;</span> <span class="cmd">/why</span><br>
+<span class="sys">Recalled for the last reply</span><br>
+&nbsp;&nbsp;text                                                similarity  age(d)  decay  importance  score<br>
+&nbsp;&nbsp;User is building a RAG system for their company    0.782       0.0     1.000  5           0.782<br>
+&nbsp;&nbsp;User has selected ChromaDB as the vector store     0.741       0.0     1.000  4           0.593<br>
+&nbsp;&nbsp;User works as a backend engineer                   0.512       0.0     1.000  5           0.512
+</div>
+
+<h3>5. Contradiction handling in action</h3>
+<div class="term">
+<span class="u">you&gt;</span> Actually, we've switched from ChromaDB to Qdrant.<br>
+<span class="a">agent&gt;</span> Got it, noting that you've moved to Qdrant for the vector store.<br>
+<span class="u">you&gt;</span> <span class="cmd">/memories</span><br>
+<span class="sys">Memories for alice</span><br>
+&nbsp;&nbsp;decision   4   User has switched from ChromaDB to Qdrant as the vector store<br>
+<span class="sys">(one row, updated in place -- not two conflicting rows)</span>
+</div>
+
+<h3>6. Eval metrics</h3>
+<div class="term">
+<span class="cmd">$ uv run python eval/run_eval.py --limit 2</span><br>
+<span class="sys">Recall eval results</span><br>
+&nbsp;&nbsp;dialog              fact recall  compressions  max buffer tokens  contradiction<br>
+&nbsp;&nbsp;alice_rag_project   5/5          2             341 / 350 budget   PASS<br>
+&nbsp;&nbsp;bob_startup         4/5          2             338 / 350 budget   PASS<br>
+<span class="sys">Aggregate recall rate: 9/10 (90%)</span><br>
+<span class="sys">Contradiction handling: 2/2 passed</span><br>
+<span class="sys">Context discipline: buffer stayed bounded in all dialogs.</span>
+</div>
+<p>Numbers above are representative of a real run; exact scores vary slightly turn-to-turn since generation isn't deterministic. Run it yourself with <code>--verbose</code> to see every question and answer.</p>
+
+<h2 id="design">Design talking points</h2>
+<ul>
+  <li><strong>Two-tier memory with honest token budgets.</strong> The prompt assembled for turn 200 is roughly the same size as the prompt for turn 5: a bounded buffer plus at most 4 recalled facts. The agent never forgets a durable fact, and the bill never grows unbounded either.</li>
+  <li><strong>Recency decay is load-bearing, not decorative.</strong> Without it, a stale-but-similar fact from months ago can outrank something said five minutes ago. The exact-ordering unit tests in <code>test_recall_scoring.py</code> exist specifically to keep this property honest as the formula evolves.</li>
+  <li><strong>Contradiction handling is memory that updates, not memory that accumulates.</strong> The dedup threshold was set from measured embedding behavior, not intuition — see the calibration table above. That 0.9-vs-0.65 gap is the difference between a demo that silently fails on its own money-shot scenario and one that doesn't.</li>
+  <li><strong><code>/why</code> makes every recall inspectable.</strong> "Trust the agent's memory" is a much easier sell when you can see the similarity, the recency decay, and the importance behind every fact it surfaced.</li>
+  <li><strong>Nothing is silently destroyed.</strong> Compression shrinks what rides in the prompt; the SQLite transcript keeps the verbatim history; the audit log keeps a record of every compression and every dedup decision (replace/merge/skip), including what the superseded text used to say.</li>
+</ul>
+
+<h2 id="stretch">Stretch goals (not implemented)</h2>
+<ul>
+  <li>Memory consolidation pass — a nightly job that merges related facts, closer to how sleep consolidates memory.</li>
+  <li>Episodic vs. semantic memory split — events ("we shipped v1 on the 12th") vs. facts ("uses Qdrant") as distinct stores with different recall behavior.</li>
+  <li>Shared-memory mode — two agent instances, one user, consistent memory with sync conflict handling.</li>
+</ul>
+
+<footer>memagent — Project 05 of a portfolio of small, focused agent builds. Python 3.11+, uv, local-only inference via Ollama.</footer>
+
+</div>
+</body>
+</html>
