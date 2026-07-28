@@ -1,56 +1,48 @@
 # memagent
 
-Project 05 of a portfolio of small, focused agent builds: a conversational agent with long-term memory that survives process restarts, demonstrating two-tier memory management (rolling buffer + compressed/distilled recall) for production agents.
+Project 05 in a production-agent engineering series: a conversational agent with session memory and persistent fact recall, designed to make compression, provenance, contradiction handling, and memory failures observable.
 
 ## What it does
 
-- **Two-tier memory**: a token-budgeted rolling buffer (~2,000 tokens) holds the live conversation verbatim; a persistent ChromaDB + SQLite store holds distilled facts that survive the process dying.
-- **Compression, not deletion**: once the buffer hits 80% of budget, the oldest half is summarized into one `[compressed]` turn — the raw turns still live in the SQLite transcript log and are never lost.
-- **Fact extraction**: compressed-out content is passed to `qwen3.5:9b` in JSON mode to pull durable facts (identity, preference, project, decision), validated against a Pydantic schema.
-- **Scored recall**: `similarity × recency_decay × importance` ranks candidate facts, so a fresher or more important fact can beat a merely-similar stale one — covered by exact-ordering unit tests.
-- **Contradiction handling**: new facts are embedded and compared against existing ones; above a measured similarity threshold, an LLM call decides replace/merge/skip so memory updates in place instead of accumulating duplicates.
-- **`/why` transparency**: every recall shows its full score breakdown (similarity, age, decay, importance, final score) — nothing about "what the agent remembers" is a black box.
+- **Two-tier memory.** A token-budgeted rolling buffer keeps the active conversation; ChromaDB and SQLite persist distilled facts and transcripts across process restarts.
+- **Compression instead of silent deletion.** When the buffer crosses 80% of its budget, the oldest half is summarized into a `[compressed]` turn while the original turns remain in the SQLite transcript.
+- **User-sourced fact extraction.** Only user-authored turns are eligible for persistent fact extraction. `qwen3.5:9b` emits typed identity, preference, project, and decision facts validated by Pydantic.
+- **Scored recall.** Similarity, recency decay, and declared importance jointly rank candidates, with deterministic tests for ordering behavior.
+- **Contradiction handling.** Similar existing facts trigger a model decision to replace, merge, or skip instead of accumulating silent duplicates.
+- **Recall transparency.** `/why` exposes the similarity, age, decay, importance, and final score behind each recalled fact.
+- **End-of-session flush.** Remaining user turns are extracted before close so facts said after the last compression cycle do not disappear on process exit.
 
 ## Quick start
 
 ```bash
 uv sync
-
-# requires Ollama running locally with both models pulled:
-#   ollama pull qwen3.5:9b
-#   ollama pull nomic-embed-text
+ollama pull qwen3.5:9b
+ollama pull nomic-embed-text
 
 uv run mem chat --user alice
-```
 
-Fast tests (unit + mocked-LLM, no network, run in well under a second):
-
-```bash
+# Fast unit and mocked-model suite
 uv run pytest
-```
 
-Live integration test — hits a real local Ollama server running `qwen3.5:9b` and `nomic-embed-text`, excluded by default:
-
-```bash
+# Live integration test
 uv run pytest -m integration -v
-```
 
-Recall eval:
-
-```bash
+# Small recall evaluation
 uv run python eval/run_eval.py --limit 2 --verbose
 ```
 
+## Privacy, tenancy, and poisoning boundary
+
+This repository persists conversation transcripts and extracted facts in local SQLite and ChromaDB storage. It does not encrypt data at rest, authenticate users, isolate tenants, enforce retention periods, implement legal deletion workflows, redact secrets, or protect database files from another local process. `/why` is useful for debugging but can itself reveal sensitive memories. Use synthetic data unless those controls are added.
+
+Restricting extraction to user-authored turns prevents assistant inventions from being promoted automatically into long-term facts; it does not make every user statement true or safe to retain. A user, imported transcript, or compromised upstream system can deliberately poison memory. The contradiction resolver and summarizer are model calls and can still make mistakes. Production memory should retain source identity and timestamp, distinguish assertions from verified facts, support user review and deletion, and apply policy before both storage and recall.
+
 ## Learnings
 
-**The dedup threshold was wrong by intuition, right by measurement.** A "plausible" cosine-similarity cutoff of 0.9 for detecting duplicate facts was tested against real `nomic-embed-text` embeddings and turned out to be actively dangerous: genuine contradictions about the same fact ("lives in NYC" → "moved to Boston": 0.714 cosine; "uses Chroma" → "switched to Qdrant": 0.791) scored *lower* than a 0.9 bar, while true paraphrases scored 0.906. A 0.9 threshold would have let every contradiction sail through as a silent duplicate insert instead of triggering an update. The threshold was recalibrated to 0.65 — above the unrelated-pairs ceiling (~0.44), below the lowest observed contradiction score (~0.71).
+- **The duplicate threshold was unsafe when chosen by intuition.** A 0.90 cosine cutoff missed real contradictions that scored around 0.71–0.79, while true paraphrases scored around 0.91. Measured unrelated pairs remained below roughly 0.44, so the trigger was recalibrated to 0.65 for this corpus and embedding model.
+- **A fabricated-memory chain was traced end to end.** The extractor originally consumed assistant as well as user turns. A plausible elaboration from the assistant was compressed repeatedly, became increasingly specific, and was eventually stored as if the user had said it. Extraction now receives only user turns, prompts forbid plausible additions, and a regression test verifies that an invented assistant detail never reaches the extractor prompt.
+- **Buffer-only extraction caused silent end-of-session loss.** A late correction remained only in the live buffer and vanished when the process exited. `Session.flush()` now extracts remaining user facts on close.
+- **Buffer size affects reliability as well as speed.** An artificially small test budget forced repeated re-summarization, increasing both latency and drift exposure. The live test budget was raised from 350 to 600 tokens.
+- **Representative small evaluation:** nine of ten facts were recalled across two scripted dialogs, both contradiction cases passed, and the buffer remained within budget. Generation is nondeterministic, so this is an observed run rather than a fixed guarantee.
 
-**A fabricated-memory chain, traced end to end.** Live verification surfaced a stored fact — "User plans to use controlled rollout to gather ground truth for evaluation metrics like Recall@K or MRR" — that nobody ever said. Tracing it through the audit log and raw transcript found the exact mechanism: the fact extractor's turn filter originally included `role == "assistant"` alongside `role == "user"`. A chat model replying to "I'm building a RAG system for our internal knowledge base" naturally elaborates ("...especially for getting operational docs and SOPs into the pipeline") — normal chat behavior, but the extractor treated that elaboration as a fact about the user. The chain compounded across re-compression cycles: each summarization pass treated the prior cycle's invented detail as established truth and elaborated further (inventing a specific embedding model name, then specific eval metrics), until extraction independently reached the same fabricated territory and stored it permanently. Fix: extraction now sources exclusively from `role == "user"` turns; both extraction and summarization prompts were also tightened to explicitly forbid inventing plausible-sounding details. A dedicated test plants a fabricated detail in an assistant turn and asserts it never reaches the extraction prompt at all — not just that it's absent from the output. Residual, accepted limitation: short-term `[compressed]` summaries (session-local only, never persisted as long-term memory) can still drift over many re-compression cycles, since the summarizer necessarily sees both roles to track conversational continuity.
-
-**Silent data loss from buffer-only extraction.** A live cross-session recall test failed because extraction only ran on compress-triggered batches — anything said after the last compression, right up to session end, sat verbatim in the buffer and vanished when the process exited. Root-caused via audit log + transcript correlation to a late-session correction ("we're fully on Qdrant now") that never got extracted. Fixed with `Session.flush()`, which extracts from any remaining verbatim turns on close.
-
-**Buffer budget size affects more than speed.** The original 350-token integration/eval buffer budget was tight enough relative to real exchange sizes to trigger compression 9 times across a 12-turn script — which, beyond being slow, meant far more re-summarization cycles than necessary, directly increasing the surface area for the drift problem above. Retuned to 600 tokens.
-
-Representative eval run: 9/10 facts recalled across two scripted dialogs (90%), 2/2 contradiction-handling cases passed, buffer stayed within budget in all runs. Numbers vary slightly turn-to-turn since generation isn't deterministic.
-
-See `readme.html` for the full write-up, architecture diagram, and demo transcript.
+See [`readme.html`](readme.html) for the architecture, contradiction calibration, audit trail, and demo transcript.
